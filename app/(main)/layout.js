@@ -3,7 +3,7 @@ import { ClerkProvider } from '@clerk/nextjs';
  // Import your global CSS
 
 export const metadata = {
-  title: "Sensai - AI Career Assistant",
+  title: "JobZen - AI Career Assistant",
   description: "Your AI-powered career development platform",
 };
 
