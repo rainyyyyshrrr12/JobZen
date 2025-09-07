@@ -15,16 +15,16 @@ export const metadata = {
 
 export default function RootLayout({ children }) {
   return (
-    <ClerkProvider
-      appearance={{
-        baseTheme: dark,
-      }}
-    >
-      <html lang="en" suppressHydrationWarning>
-        <head>
-          <link rel="icon" href="/logo.png" sizes="any" />
-        </head>
-        <body className={`${inter.className}`}>
+    // server renders the same attributes the client expects initially
+    <html lang="en" className="dark" style={{ colorScheme: "dark" }} suppressHydrationWarning>
+      <head>
+        <link rel="icon" href="/logo.png" sizes="any" />
+      </head>
+
+      {/* Keep body class identical server & client */}
+      <body className={inter.className}>
+        {/* Client providers must live inside <body> */}
+        <ClerkProvider appearance={{ baseTheme: dark }}>
           <ThemeProvider
             attribute="class"
             defaultTheme="dark"
@@ -34,15 +34,14 @@ export default function RootLayout({ children }) {
             <Header />
             <main className="min-h-screen">{children}</main>
             <Toaster richColors />
-
             <footer className="bg-muted/50 py-12">
               <div className="container mx-auto px-4 text-center text-gray-200">
-                <p>Made with 💗 by RainySharma</p>
+                <p>Made with 💗 by Rainy Sharma</p>
               </div>
             </footer>
           </ThemeProvider>
-        </body>
-      </html>
-    </ClerkProvider>
+        </ClerkProvider>
+      </body>
+    </html>
   );
 }
