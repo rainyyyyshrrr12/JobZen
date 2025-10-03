@@ -2,55 +2,171 @@
 
 import { db } from "@/lib/prisma";
 import { auth } from "@clerk/nextjs/server";
-import { GoogleGenerativeAI } from "@google/generative-ai";
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+/** ---------------- Gemini (REST, v1) with dynamic model discovery ----------------
+ * Avoids hard-coded models causing 404. Lists available models for your key,
+ * picks the best one that supports generateContent, then calls it.
+ * Vercel → Settings → Environment Variables → GEMINI_API_KEY
+ */
+
+const GEN_PREF = [
+  // preferred order (newer → older)
+  "gemini-1.5-flash-002",
+  "gemini-1.5-flash",
+  "gemini-1.5-flash-latest",
+  "gemini-1.5-pro-002",
+  "gemini-1.5-pro",
+  "gemini-1.5-pro-latest",
+  // legacy fallbacks (some projects only have these)
+  "gemini-pro",
+  "gemini-1.0-pro",
+];
+
+async function listModelsV1(key) {
+  const url = `https://generativelanguage.googleapis.com/v1/models?key=${key}`;
+  const resp = await fetch(url, { method: "GET", cache: "no-store" });
+  if (!resp.ok) {
+    const body = await resp.text();
+    throw new Error(`ListModels failed: ${resp.status} ${resp.statusText} – ${body}`);
+  }
+  const data = await resp.json();
+  return data.models || [];
+}
+
+/** Returns a model ID that exists + supports generateContent (e.g., "models/gemini-1.5-flash") */
+function pickBestModel(available) {
+  const supports = new Set(
+    available
+      .filter(
+        (m) =>
+          Array.isArray(m.supportedGenerationMethods) &&
+          m.supportedGenerationMethods.includes("generateContent")
+      )
+      .map((m) => m.name) // API returns "models/<name>"
+  );
+
+  for (const pref of GEN_PREF) {
+    if (supports.has(`models/${pref}`)) return `models/${pref}`;
+  }
+
+  // fallback: first generateContent-capable model
+  const first = [...supports][0];
+  return first || null;
+}
+
+async function geminiGenerate(prompt) {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) throw new Error("Server misconfiguration: GEMINI_API_KEY is missing");
+
+  // 1) Discover models enabled for THIS key/project
+  const models = await listModelsV1(key);
+  console.log("Gemini models available:", models.map((m) => m.name).join(", "));
+
+  // 2) Pick the best available model that supports generateContent
+  const chosen = pickBestModel(models);
+  if (!chosen) throw new Error("No Gemini model with generateContent available for this API key");
+
+  // chosen like "models/gemini-1.5-flash"
+  const url = `https://generativelanguage.googleapis.com/v1/${chosen}:generateContent?key=${key}`;
+
+  // 3) Call generateContent
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    cache: "no-store",
+    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+  });
+
+  if (!resp.ok) {
+    const body = await resp.text();
+    throw new Error(`GenerateContent failed: ${resp.status} ${resp.statusText} – ${body}`);
+  }
+
+  const data = await resp.json();
+  const text = data?.candidates?.[0]?.content?.parts?.map((p) => p.text).join("") ?? "";
+  if (!text) throw new Error("Empty model response");
+  return text;
+}
+
+/** --------- Helpers: prompt + safe JSON extraction --------- */
+
+function buildQuizPrompt(industry, skills) {
+  return `
+You are an interview question generator.
+
+Generate exactly 10 technical multiple-choice questions for a ${industry} professional${
+    skills?.length ? ` with expertise in ${skills.join(", ")}` : ""
+  }.
+
+Each item must include:
+- "question": string
+- "options": array of 4 strings
+- "correctAnswer": one of the options
+- "explanation": short string
+
+Return ONLY this JSON (no extra text):
+
+{
+  "questions": [
+    {
+      "question": "string",
+      "options": ["A", "B", "C", "D"],
+      "correctAnswer": "A",
+      "explanation": "why A is correct"
+    }
+  ]
+}
+`.trim();
+}
+
+function extractJson(text) {
+  // Remove fenced code blocks if present
+  let t = text.replace(/```(?:json)?\s*([\s\S]*?)\s*```/gi, "$1").trim();
+
+  // Try direct parse
+  try {
+    return JSON.parse(t);
+  } catch (_) {
+    // Try biggest {} slice
+    const first = t.indexOf("{");
+    const last = t.lastIndexOf("}");
+    if (first !== -1 && last !== -1 && last > first) {
+      const candidate = t.slice(first, last + 1);
+      try {
+        return JSON.parse(candidate);
+      } catch (e2) {
+        console.error("JSON parse failed (candidate):", e2, "\nCandidate:", candidate);
+      }
+    }
+    console.error("JSON parse failed (raw):", t);
+    throw new Error("Model returned invalid JSON");
+  }
+}
+
+/** ---------------------- Actions ---------------------- */
 
 export async function generateQuiz() {
+  // Requires Clerk middleware to be active on this route
   const { userId } = await auth();
   if (!userId) throw new Error("Unauthorized");
 
   const user = await db.user.findUnique({
     where: { clerkUserId: userId },
-    select: {
-      industry: true,
-      skills: true,
-    },
+    select: { industry: true, skills: true },
   });
-
   if (!user) throw new Error("User not found");
 
-  const prompt = `
-    Generate 10 technical interview questions for a ${
-      user.industry
-    } professional${
-    user.skills?.length ? ` with expertise in ${user.skills.join(", ")}` : ""
-  }.
-    
-    Each question should be multiple choice with 4 options.
-    
-    Return the response in this JSON format only, no additional text:
-    {
-      "questions": [
-        {
-          "question": "string",
-          "options": ["string", "string", "string", "string"],
-          "correctAnswer": "string",
-          "explanation": "string"
-        }
-      ]
-    }
-  `;
+  const prompt = buildQuizPrompt(user.industry, user.skills || []);
 
   try {
-    const result = await model.generateContent(prompt);
-    const response = result.response;
-    const text = response.text();
-    const cleanedText = text.replace(/```(?:json)?\n?/g, "").trim();
-    const quiz = JSON.parse(cleanedText);
+    const text = await geminiGenerate(prompt);
+    const data = extractJson(text);
 
-    return quiz.questions;
+    if (!data?.questions || !Array.isArray(data.questions) || data.questions.length !== 10) {
+      throw new Error("Model returned unexpected structure");
+    }
+
+    return data.questions;
   } catch (error) {
     console.error("Error generating quiz:", error);
     throw new Error("Failed to generate quiz questions");
@@ -63,50 +179,47 @@ export async function saveQuizResult(questions, answers, score) {
 
   const user = await db.user.findUnique({
     where: { clerkUserId: userId },
+    select: { id: true, industry: true },
   });
-
   if (!user) throw new Error("User not found");
 
-  const questionResults = questions.map((q, index) => ({
+  const results = questions.map((q, i) => ({
     question: q.question,
     answer: q.correctAnswer,
-    userAnswer: answers[index],
-    isCorrect: q.correctAnswer === answers[index],
+    userAnswer: answers[i],
+    isCorrect: q.correctAnswer === answers[i],
     explanation: q.explanation,
   }));
 
-  // Get wrong answers
-  const wrongAnswers = questionResults.filter((q) => !q.isCorrect);
+  const wrong = results.filter((r) => !r.isCorrect);
 
-  // Only generate improvement tips if there are wrong answers
+  // Generate improvement tip only when needed
   let improvementTip = null;
-  if (wrongAnswers.length > 0) {
-    const wrongQuestionsText = wrongAnswers
+  if (wrong.length > 0) {
+    const wrongText = wrong
       .map(
         (q) =>
           `Question: "${q.question}"\nCorrect Answer: "${q.answer}"\nUser Answer: "${q.userAnswer}"`
       )
       .join("\n\n");
 
-    const improvementPrompt = `
-      The user got the following ${user.industry} technical interview questions wrong:
+    const tipPrompt = `
+User took a ${user.industry} technical quiz and missed several questions.
 
-      ${wrongQuestionsText}
+${wrongText}
 
-      Based on these mistakes, provide a concise, specific improvement tip.
-      Focus on the knowledge gaps revealed by these wrong answers.
-      Keep the response under 2 sentences and make it encouraging.
-      Don't explicitly mention the mistakes, instead focus on what to learn/practice.
-    `;
+Give a concise (<= 2 sentences), encouraging improvement tip that focuses on what to learn next.
+Do not mention specific mistakes.
+`.trim();
 
     try {
-      const tipResult = await model.generateContent(improvementPrompt);
-
-      improvementTip = tipResult.response.text().trim();
-      console.log(improvementTip);
-    } catch (error) {
-      console.error("Error generating improvement tip:", error);
-      // Continue without improvement tip if generation fails
+      const tipText = await geminiGenerate(tipPrompt);
+      // Strip any code fences and trim
+      improvementTip = tipText.replace(/```[\s\S]*?```/g, "").trim();
+      if (improvementTip.length > 300) improvementTip = improvementTip.slice(0, 300);
+    } catch (e) {
+      console.error("Error generating improvement tip:", e);
+      improvementTip = null;
     }
   }
 
@@ -115,7 +228,7 @@ export async function saveQuizResult(questions, answers, score) {
       data: {
         userId: user.id,
         quizScore: score,
-        questions: questionResults,
+        questions: results, // Prisma field should be Json
         category: "Technical",
         improvementTip,
       },
@@ -134,20 +247,15 @@ export async function getAssessments() {
 
   const user = await db.user.findUnique({
     where: { clerkUserId: userId },
+    select: { id: true },
   });
-
   if (!user) throw new Error("User not found");
 
   try {
     const assessments = await db.assessment.findMany({
-      where: {
-        userId: user.id,
-      },
-      orderBy: {
-        createdAt: "asc",
-      },
+      where: { userId: user.id },
+      orderBy: { createdAt: "asc" },
     });
-
     return assessments;
   } catch (error) {
     console.error("Error fetching assessments:", error);
