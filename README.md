@@ -1,36 +1,107 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+JobZen – AI Career Coach
 
-## Getting Started
+Your personal AI-powered career mentor helping you plan, prepare, and grow.
 
-First, run the development server:
+🚀 Overview
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+JobZen is an AI-driven career coaching platform that provides personalized career guidance, resume optimization, interview preparation and skill roadmaps.
+The goal is to make career planning accessible, intelligent, and adaptive for students and working professionals.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+⭐ Key Features
+1. AI Career Guidance
 
-You can start editing the page by modifying `app/page.js`. The page auto-updates as you edit the file.
+Suggests career paths based on user interests, skills & goals
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Recommends relevant job roles and industries
 
-## Learn More
+Provides step-by-step skill development roadmaps
 
-To learn more about Next.js, take a look at the following resources:
+2. Smart Job Recommendations
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Matches users to suitable job roles
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Filters based on skills, experience, and preferences
 
-## Deploy on Vercel
+Provides job descriptions and required competencies
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+3. Interview Preparation Assistant
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Behavioral question trainer
+
+Technical interview MCQs & coding tasks
+
+Mock interview simulations
+🧠 Tech Stack
+Frontend
+
+Next.js (App Router)
+
+Tailwind CSS
+
+Shadcn UI
+
+React Server Components
+
+Backend / Full-Stack
+
+Prisma ORM
+
+NeonDB (Serverless PostgreSQL)
+
+Inngest (Background jobs & workflows)
+
+Next.js API Routes
+
+AI / LLM
+
+Google Gemini API
+
+LLM-driven: resume analysis, interview coaching, job matching, plan generation
+How It Works (Architecture)
+1. User Interactions
+
+Frontend (Next.js + Shadcn UI) → backend server actions → AI services.
+
+2. AI Processing
+
+Gemini API handles:
+
+Resume creation
+
+Career recommendations
+
+Interview Q&A
+
+3. Database Layer
+
+NeonDB + Prisma store:
+
+User profiles
+
+Skills
+
+Roadmaps
+
+Progress data
+
+
+4. Background Jobs
+
+Inngest handles:
+
+Scheduled recommendations
+
+Roadmap updates
+
+Long-running LLM tasks
+🤝 Contributing
+
+Contributions, issues, and feature requests are welcome!
+
+📜 License
+
+MIT License
+
+💬 Contact
+
+If you need UI redesign, API docs, logo, or architecture diagrams, just tell me!
